@@ -1,0 +1,180 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SrsType {
+  WORD
+  PHRASE
+  GRAMMAR
+  PRONUNCIATION
+  LISTENING
+}
+
+enum Skill {
+  LISTENING
+  READING
+  GRAMMAR
+  SPEAKING
+  WRITING
+}
+
+enum Mode {
+  PRACTICE
+  EXAM
+  SIMULATOR
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  currentLevel  String   @default("A1") // A1, A2, B1, B2, C1
+  targetLevel   String   @default("C1")
+  createdAt     DateTime @default(now())
+  lastActive    DateTime @default(now())
+  
+  // Learning progress
+  srsReviews    SrsReview[]
+  attempts      Attempt[]
+  masteryLog    MasteryLog[]
+  
+  // Space management
+  archivedItems ArchivedItem[]
+}
+
+model SrsItem {
+  id          String   @id @default(cuid())
+  type        SrsType  // WORD, PHRASE, GRAMMAR, PRONUNCIATION, LISTENING
+  payload     Json     // { fr: "bonjour", en: "hello", ipa: "bɔ̃ʒuʁ", audio: "url" }
+  cefr        String   // A1, A2, B1, B2, C1
+  difficulty  Int      // 1-10 scale
+  tags        String[] // ["greetings", "basic", "essential"]
+  usageCount  Int      @default(0)
+  lastUsed    DateTime @default(now())
+  
+  // SRS scheduling
+  reviews     SrsReview[]
+  
+  // Space management
+  isArchived  Boolean  @default(false)
+  archiveDate DateTime?
+}
+
+model SrsReview {
+  id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  item        SrsItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId      String
+  
+  // SM-2 algorithm
+  ease        Int      @default(2) // 0-5 scale
+  interval    Int      @default(1) // days
+  dueAt       DateTime
+  lastResult  String?  // AGAIN, HARD, GOOD, EASY
+  
+  // Error tracking
+  errorTags   String[] // ["pronunciation", "gender", "tense"]
+  attempts    Int      @default(0)
+  
+  // Mastery detection
+  consecutiveCorrect Int @default(0)
+  masteryScore      Float @default(0.0)
+}
+
+model MasteryLog {
+  id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  
+  // Mastery tracking
+  skill       String   // "pronunciation", "grammar", "vocabulary"
+  level       String   // "A1", "A2", etc.
+  score       Float    // 0.0 - 1.0
+  date        DateTime @default(now())
+  
+  // Space management triggers
+  shouldArchive Boolean @default(false)
+  archiveReason String?
+}
+
+model ArchivedItem {
+  id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  
+  // Compressed data
+  originalId  String
+  itemType    String
+  compressedData Json  // Minimal representation
+  archiveDate DateTime @default(now())
+  
+  // Recovery info
+  canRestore  Boolean  @default(true)
+  restoreDate DateTime?
+}
+
+model Attempt {
+  id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  
+  // TCF-aligned skills
+  skill       Skill    // LISTENING, READING, GRAMMAR, SPEAKING, WRITING
+  mode        Mode     // PRACTICE, EXAM, SIMULATOR
+  level       String   // CEFR level
+  
+  // Content
+  raw         Json     // Audio URL, transcript, answers
+  scores      Score[]
+  
+  // Timing
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  duration    Int?     // seconds
+}
+
+model Score {
+  id          String   @id @default(cuid())
+  attempt     Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  attemptId   String
+  
+  // TCF scoring
+  dimension   String   // pronunciation, fluency, grammar, lexis, task_fulfillment
+  value       Float    // 0-100 or 0-12 for writing
+  bandGuess   String   // CEFR estimate
+  feedback    String   // Specific improvement suggestions
+  
+  // Mastery contribution
+  masteryWeight Float  @default(1.0)
+}
+
+model Lesson {
+  id          String   @id @default(cuid())
+  title       String
+  cefr        String   // A1, A2, B1, B2, C1
+  type        String   // "pronunciation", "grammar", "vocabulary", "listening"
+  content     Json     // Lesson structure and materials
+  order       Int      // Lesson order within level
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model TCFExam {
+  id          String   @id @default(cuid())
+  title       String
+  type        String   // "listening", "reading", "grammar", "speaking", "writing"
+  cefr        String   // Target CEFR level
+  questions   Json     // Exam questions and answers
+  timeLimit   Int      // Time limit in seconds
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
